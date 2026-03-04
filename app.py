@@ -60,7 +60,7 @@ def log_activity(action, details=""):
         pass
 
 # --- HEADER ---
-st.markdown("<h1 class='centered-title'>🔗 SQL-Flow</h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='centered-title'>⌨ SQL Lineage Tool</h1>", unsafe_allow_html=True)
 st.markdown("<p class='centered-subtitle'>Data Lineage & Impact Analytics</p>", unsafe_allow_html=True)
 
 # --- VERTICAL NAVIGATION (OPTION MENU) ---
