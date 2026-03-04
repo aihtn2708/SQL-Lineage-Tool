@@ -100,7 +100,7 @@ with st.sidebar:
 # PAGE 1: INTRODUCTION & EXAMPLES
 # ==========================================
 if selected_page == "Intro & Examples":
-    st.header("📖 Welcome to SQL-Flow")
+    st.header("📖 Welcome to  SQL Lineage Tool")
     st.markdown("Instantly visualize complex SQL dependencies, track downstream impacts, and save your work.")
     
     st.subheader("Load an Example")
