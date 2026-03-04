@@ -1,6 +1,5 @@
 streamlit
 sqlglot
-graphviz
 supabase
 streamlit-option-menu
 streamlit-adjustable-columns
