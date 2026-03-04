@@ -10,7 +10,7 @@ import pandas as pd
 import datetime
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="SQL-Flow SaaS", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="SQL Lineage Tool", layout="wide", initial_sidebar_state="expanded")
 
 # --- CUSTOM UI / CSS ---
 st.markdown("""
