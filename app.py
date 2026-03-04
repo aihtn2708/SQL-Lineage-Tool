@@ -2,23 +2,22 @@ import streamlit as st
 import sqlglot
 from sqlglot import exp
 import graphviz
+from collections import defaultdict
 
 # --- Page Config ---
-st.set_page_config(page_title="SQL-Flow V1", layout="wide")
-st.title("🔗 SQL-Flow: Instant Data Lineage")
-st.markdown("Upload a `.sql` file or paste your query below to generate a dependency graph.")
+st.set_page_config(page_title="SQL-Flow V2", layout="wide")
+st.title("🔗 SQL-Flow: Lineage & Impact Analysis")
 
-# --- Sidebar / Inputs ---
-with st.sidebar:
-    st.header("Input Method")
-    uploaded_file = st.file_uploader("Upload SQL File", type=["sql", "txt"])
+# --- Initialize Session State Memory ---
+# This is the secret to keeping the graph on screen when interacting with dropdowns!
+if "lineage_data" not in st.session_state:
+    st.session_state.lineage_data = None
 
-# Main layout
+# --- UI Layout ---
 col_input, col_viz = st.columns([1, 1.5])
 
 with col_input:
     st.subheader("SQL Editor")
-    # Default placeholder text
     default_sql = """WITH raw_sales AS (
     SELECT * FROM source_db.sales_data
 ),
@@ -30,106 +29,127 @@ regional_summary AS (
 )
 SELECT * FROM regional_summary;"""
 
-    # If file is uploaded, use its text; otherwise use text area
-    if uploaded_file is not None:
-        file_text = uploaded_file.getvalue().decode("utf-8")
-        sql_input = st.text_area("Your Query:", value=file_text, height=500)
-    else:
-        sql_input = st.text_area("Your Query:", value=default_sql, height=500)
+    sql_input = st.text_area("Paste your query:", value=default_sql, height=400)
+    analyze_btn = st.button("Parse SQL & Generate Map", type="primary")
 
-    analyze_btn = st.button("Draw Lineage Flow", type="primary")
+# --- Parsing Logic (Runs only when button is clicked) ---
+if analyze_btn and sql_input:
+    try:
+        parsed_query = sqlglot.parse_one(sql_input)
+        ctes = list(parsed_query.find_all(exp.CTE))
+        
+        # We need two maps: one for Downstream (Parent->Child) and one for Upstream (Child->Parent)
+        downstream_map = defaultdict(set)
+        upstream_map = defaultdict(set)
+        all_nodes = set()
+        
+        # 1. Map CTEs
+        for cte in ctes:
+            cte_name = cte.alias
+            all_nodes.add(cte_name)
+            
+            for table in cte.find_all(exp.Table):
+                source_name = table.name
+                all_nodes.add(source_name)
+                # Build the bidirectional relationships
+                downstream_map[source_name].add(cte_name)
+                upstream_map[cte_name].add(source_name)
 
-# --- Core Logic & Visualization ---
-from collections import defaultdict
+        # 2. Map Final Output
+        if isinstance(parsed_query, exp.Select):
+            all_nodes.add("Final_Output")
+            for table in parsed_query.find_all(exp.Table):
+                if table.parent is parsed_query or table.parent.parent is parsed_query:
+                    downstream_map[table.name].add("Final_Output")
+                    upstream_map["Final_Output"].add(table.name)
 
-# --- Core Logic & Visualization ---
+        # Save to session memory
+        st.session_state.lineage_data = {
+            "downstream": downstream_map,
+            "upstream": upstream_map,
+            "nodes": all_nodes
+        }
+        
+    except Exception as e:
+        st.error(f"Failed to parse SQL: {e}")
+        st.session_state.lineage_data = None
+
+# --- Visualization & Interactive Analysis ---
 with col_viz:
-    st.subheader("Data Lineage & Impact Analysis")
-    
-    if analyze_btn and sql_input:
-        try:
-            # 1. Parse the SQL
-            parsed_query = sqlglot.parse_one(sql_input)
-            ctes = list(parsed_query.find_all(exp.CTE))
-            
-            # 2. Track Dependencies (Parent -> Children)
-            dependency_map = defaultdict(list)
-            all_known_nodes = set()
-            
-            for cte in ctes:
-                cte_name = cte.alias
-                all_known_nodes.add(cte_name)
-                
-                for table in cte.find_all(exp.Table):
-                    source_name = table.name
-                    all_known_nodes.add(source_name)
-                    # Map the source table to the CTE that uses it
-                    dependency_map[source_name].append(cte_name)
-
-            # Map the Final Output
-            if isinstance(parsed_query, exp.Select):
-                for table in parsed_query.find_all(exp.Table):
-                    if table.parent is parsed_query or table.parent.parent is parsed_query:
-                        dependency_map[table.name].append("Final_Output")
-                        all_known_nodes.add("Final_Output")
-
-            # 3. Interactive UI for Impact Analysis
-            st.markdown("---")
+    if st.session_state.lineage_data:
+        data = st.session_state.lineage_data
+        
+        st.subheader("Interactive Graph")
+        
+        # UI controls for analysis
+        col_mode, col_target = st.columns(2)
+        with col_mode:
+            analysis_mode = st.radio(
+                "Select Analysis Mode:", 
+                ["Default View", "🔴 Downstream Impact (Domino Effect)", "🟠 Upstream Root Cause"]
+            )
+        with col_target:
             target_node = st.selectbox(
-                "🚨 Select a Table/CTE to simulate a change (Domino Effect):", 
-                options=["-- None --"] + sorted(list(all_known_nodes))
+                "Select Target Table/CTE:", 
+                options=["-- None --"] + sorted(list(data["nodes"]))
             )
 
-            # 4. Calculate the Domino Effect (Recursive function)
-            def get_downstream_impact(node, dep_map, visited=None):
-                if visited is None:
-                    visited = set()
-                for child in dep_map.get(node, []):
-                    if child not in visited:
-                        visited.add(child)
-                        get_downstream_impact(child, dep_map, visited)
-                return visited
+        # Recursive function to trace paths
+        def trace_lineage(node, mapping, visited=None):
+            if visited is None:
+                visited = set()
+            for related_node in mapping.get(node, []):
+                if related_node not in visited:
+                    visited.add(related_node)
+                    trace_lineage(related_node, mapping, visited)
+            return visited
+
+        # Determine which nodes to highlight based on selected mode
+        highlighted_nodes = set()
+        if target_node != "-- None --":
+            if "Downstream" in analysis_mode:
+                highlighted_nodes = trace_lineage(target_node, data["downstream"])
+                highlighted_nodes.add(target_node)
+            elif "Upstream" in analysis_mode:
+                highlighted_nodes = trace_lineage(target_node, data["upstream"])
+                highlighted_nodes.add(target_node)
+
+        # Draw the Graph
+        graph = graphviz.Digraph(engine='dot')
+        graph.attr(rankdir='LR', size='10,10')
+        graph.attr('node', shape='cylinder', style='filled', fontname='Helvetica')
+
+        # Add all nodes
+        for node in data["nodes"]:
+            # Determine color
+            if node in highlighted_nodes:
+                fill_color = '#ff6b6b' if "Downstream" in analysis_mode else '#ffb067' # Red for Down, Orange for Up
+            else:
+                fill_color = 'lightgreen' if node == "Final_Output" else 'lightblue'
+                if node not in data["upstream"] and node != "Final_Output": # It's a raw source table
+                    fill_color = 'lightgrey'
             
-            impacted_nodes = set()
-            if target_node != "-- None --":
-                impacted_nodes = get_downstream_impact(target_node, dependency_map)
-                # Include the target node itself in the highlight
-                impacted_nodes.add(target_node) 
-
-            # 5. Initialize & Draw Graphviz
-            graph = graphviz.Digraph(engine='dot')
-            graph.attr(rankdir='LR', size='8,8')
-            graph.attr('node', shape='cylinder', style='filled', fontname='Helvetica')
-
-            # Draw nodes with conditional coloring
-            drawn_nodes = set()
-            for parent, children in dependency_map.items():
-                # Draw Parent
-                if parent not in drawn_nodes:
-                    color = '#ff6b6b' if parent in impacted_nodes else 'lightgrey' # Red if impacted
-                    graph.node(parent, parent, fillcolor=color)
-                    drawn_nodes.add(parent)
-                
-                # Draw Children & Edges
-                for child in children:
-                    if child not in drawn_nodes:
-                        color = '#ff6b6b' if child in impacted_nodes else 'lightblue'
-                        if child == "Final_Output":
-                            color = '#ff6b6b' if child in impacted_nodes else 'lightgreen'
-                            graph.node(child, "Final Output", fillcolor=color, shape='box')
-                        else:
-                            graph.node(child, child, fillcolor=color)
-                        drawn_nodes.add(child)
-                    
-                    # Connect them
-                    edge_color = 'red' if (parent in impacted_nodes and child in impacted_nodes) else 'black'
-                    graph.edge(parent, child, color=edge_color)
-
-            st.graphviz_chart(graph, use_container_width=True)
+            shape = 'box' if node == "Final_Output" else 'cylinder'
+            label = "Final Output" if node == "Final_Output" else node
             
-            # Print a summary warning if a target is selected
-            if target_node != "-- None --" and len(impacted_nodes) > 1:
-                st.warning(f"⚠️ **Warning:** Changing `{target_node}` will directly impact {len(impacted_nodes)-1} downstream components.")
+            graph.node(node, label, fillcolor=fill_color, shape=shape)
 
-        except sqlglot.errors.ParseError as e:
-            st.error("SQL Syntax Error. Please check your query.")
+        # Add all edges
+        for parent, children in data["downstream"].items():
+            for child in children:
+                # If both parent and child are highlighted, highlight the line connecting them
+                if parent in highlighted_nodes and child in highlighted_nodes:
+                    edge_color = 'red' if "Downstream" in analysis_mode else 'orange'
+                    graph.edge(parent, child, color=edge_color, penwidth='2')
+                else:
+                    graph.edge(parent, child, color='black')
+
+        # Render the chart
+        st.graphviz_chart(graph, use_container_width=True)
+        
+        # Summary messages
+        if target_node != "-- None --":
+            if "Downstream" in analysis_mode and len(highlighted_nodes) > 1:
+                st.warning(f"🚨 Changing `{target_node}` impacts **{len(highlighted_nodes)-1}** downstream components.")
+            elif "Upstream" in analysis_mode and len(highlighted_nodes) > 1:
+                st.info(f"🔍 `{target_node}` relies on **{len(highlighted_nodes)-1}** upstream data sources.")
