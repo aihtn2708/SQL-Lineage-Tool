@@ -124,9 +124,11 @@ SELECT * FROM q1_rev UNION ALL SELECT * FROM q2_rev;"""
 # PAGE 2: LINEAGE TOOL
 # ==========================================
 elif selected_page == "Lineage Tool":
-    st.info("💡 **Pro-tip:** Hover over the top-right of the text editor or the graph to click the `⤢` icon for Fullscreen mode. Drag the bottom right of the text box to resize.")
+    st.info("💡 **Pro-tip:** Hover over the text editor or graph to click the `⤢` icon for Fullscreen mode.")
     
-    col_input, col_viz = st.columns([1, 1.5], gap="large")
+    # --- The Width Adjustment Hack ---
+    split_pct = st.slider("📐 Adjust Editor Width (%)", min_value=20, max_value=80, value=40, step=5)
+    col_input, col_viz = st.columns([split_pct, 100 - split_pct], gap="large")
     
     with col_input:
         st.subheader("📝 SQL Editor")
@@ -135,7 +137,7 @@ elif selected_page == "Lineage Tool":
         if uploaded_file:
             st.session_state.editor_sql = uploaded_file.getvalue().decode("utf-8")
             
-        sql_input = st.text_area("Your Query:", value=st.session_state.editor_sql, height=400)
+        sql_input = st.text_area("Your Query:", value=st.session_state.editor_sql, height=450)
         analyze_btn = st.button("🚀 Parse SQL & Generate Map", type="primary", use_container_width=True)
         
         if st.session_state.user:
@@ -283,15 +285,21 @@ elif selected_page == "My Projects":
 # PAGE 4: ACCOUNT
 # ==========================================
 elif selected_page == "Account":
-    # (Account code remains identical to previous version, omitted here for brevity if you didn't change it. 
-    # But I will include the skeleton so the file runs perfectly).
     if not st.session_state.user:
         st.header("👤 Authentication")
         with st.container(border=True):
-            auth_mode = st.radio("Action:", ["Login", "Sign Up"], horizontal=True)
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
+            auth_mode = st.radio("Action:", ["Login", "Sign Up", "Forgot Password", "Enter Reset Code"], horizontal=True)
+            st.markdown("<br>", unsafe_allow_html=True)
             
+            email = st.text_input("Email")
+            
+            if auth_mode in ["Login", "Sign Up"]:
+                password = st.text_input("Password", type="password")
+                
+            elif auth_mode == "Enter Reset Code":
+                reset_code = st.text_input("6-Digit Reset Code (from email)")
+                new_password = st.text_input("New Password", type="password")
+                
             if st.button(auth_mode, type="primary"):
                 try:
                     if auth_mode == "Login":
@@ -300,14 +308,35 @@ elif selected_page == "Account":
                         log_activity("User Logged In")
                         st.success("Logged in successfully!")
                         st.rerun()
+                        
                     elif auth_mode == "Sign Up":
                         supabase.auth.sign_up({"email": email, "password": password})
                         st.success("Check your email to confirm registration!")
+                        
+                    elif auth_mode == "Forgot Password":
+                        supabase.auth.reset_password_email(email)
+                        st.success("Reset code sent! Please check your email and select 'Enter Reset Code' above.")
+                        
+                    elif auth_mode == "Enter Reset Code":
+                        supabase.auth.verify_otp({"email": email, "token": reset_code, "type": "recovery"})
+                        supabase.auth.update_user({"password": new_password})
+                        st.success("Password updated successfully! You can now select 'Login' to access your account.")
+                        
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Authentication Error: {e}")
     else:
         st.header("👤 Account Settings")
         st.success(f"Verified Email: **{st.session_state.user.email}**")
+        
+        with st.expander("Update Password"):
+            update_password = st.text_input("Enter New Password", type="password", key="update_pw")
+            if st.button("Save New Password"):
+                try:
+                    supabase.auth.update_user({"password": update_password})
+                    st.success("Password securely updated.")
+                except Exception as e:
+                    st.error(f"Failed to update: {e}")
+                    
         if st.button("🚪 Log Out", type="secondary"):
             log_activity("User Logged Out")
             supabase.auth.sign_out()
