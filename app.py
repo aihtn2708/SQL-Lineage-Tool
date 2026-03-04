@@ -236,11 +236,16 @@ with tab_projects:
 with tab_account:
     if not st.session_state.user:
         st.header("Authentication")
-        auth_mode = st.radio("Select Action", ["Login", "Sign Up", "Forgot Password"])
+        auth_mode = st.radio("Select Action", ["Login", "Sign Up", "Forgot Password", "Enter Reset Code"])
         
         email = st.text_input("Email")
-        if auth_mode != "Forgot Password":
+        
+        if auth_mode in ["Login", "Sign Up"]:
             password = st.text_input("Password", type="password")
+            
+        elif auth_mode == "Enter Reset Code":
+            reset_code = st.text_input("6-Digit Reset Code (from email)")
+            new_password = st.text_input("New Password", type="password")
             
         if st.button(auth_mode):
             try:
@@ -250,22 +255,43 @@ with tab_account:
                     log_activity("User Logged In")
                     st.success("Logged in successfully!")
                     st.rerun()
+                    
                 elif auth_mode == "Sign Up":
                     supabase.auth.sign_up({"email": email, "password": password})
                     st.success("Check your email to confirm registration!")
+                    
                 elif auth_mode == "Forgot Password":
                     supabase.auth.reset_password_email(email)
-                    st.success("Password reset link sent!")
+                    st.success("Reset code sent! Please check your email and select 'Enter Reset Code' above.")
+                    
+                elif auth_mode == "Enter Reset Code":
+                    # 1. Verify the 6-digit code
+                    supabase.auth.verify_otp({"email": email, "token": reset_code, "type": "recovery"})
+                    # 2. Update the password
+                    supabase.auth.update_user({"password": new_password})
+                    st.success("Password updated successfully! You can now select 'Login' to access your account.")
+                    
             except Exception as e:
                 st.error(f"Authentication Error: {e}")
     else:
         st.success(f"Welcome, {st.session_state.user.email}")
+        
+        # Logged-in users can also change their password here if they want
+        with st.expander("Change Password"):
+            update_password = st.text_input("Enter New Password", type="password", key="update_pw")
+            if st.button("Update Password"):
+                try:
+                    supabase.auth.update_user({"password": update_password})
+                    st.success("Password updated!")
+                except Exception as e:
+                    st.error(f"Failed to update password: {e}")
+                    
         if st.button("Log Out"):
             log_activity("User Logged Out")
             supabase.auth.sign_out()
             st.session_state.user = None
             st.rerun()
-
+            
 # ==========================================
 # TAB 5: ADMIN BOARD
 # ==========================================
