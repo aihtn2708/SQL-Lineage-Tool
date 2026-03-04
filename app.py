@@ -46,33 +46,41 @@ SELECT * FROM regional_summary;"""
     analyze_btn = st.button("Parse SQL & Generate Map", type="primary")
 
 # --- Parsing Logic (Runs only when button is clicked) ---
+# --- Parsing Logic (Runs only when button is clicked) ---
 if analyze_btn and sql_input:
     try:
         parsed_query = sqlglot.parse_one(sql_input)
-        ctes = list(parsed_query.find_all(exp.CTE))
         
         downstream_map = defaultdict(set)
         upstream_map = defaultdict(set)
         all_nodes = set()
         
-        # 1. Map CTEs
-        for cte in ctes:
-            cte_name = cte.alias
-            all_nodes.add(cte_name)
+        # Find ALL tables in the entire query, no matter how deeply nested
+        for table in parsed_query.find_all(exp.Table):
+            source_name = table.name
+            all_nodes.add(source_name)
             
-            for table in cte.find_all(exp.Table):
-                source_name = table.name
-                all_nodes.add(source_name)
+            # Walk up the AST to see where this table lives
+            parent_cte = None
+            current_node = table
+            
+            while current_node:
+                if isinstance(current_node, exp.CTE):
+                    parent_cte = current_node
+                    break
+                current_node = current_node.parent
+                
+            if parent_cte:
+                # The table is inside a CTE (even if it's inside a subquery inside the CTE)
+                cte_name = parent_cte.alias
+                all_nodes.add(cte_name)
                 downstream_map[source_name].add(cte_name)
                 upstream_map[cte_name].add(source_name)
-
-        # 2. Map Final Output
-        if isinstance(parsed_query, exp.Select):
-            all_nodes.add("Final_Output")
-            for table in parsed_query.find_all(exp.Table):
-                if table.parent is parsed_query or table.parent.parent is parsed_query:
-                    downstream_map[table.name].add("Final_Output")
-                    upstream_map["Final_Output"].add(table.name)
+            else:
+                # The table is in the main query (even if it's inside a nested subquery)
+                all_nodes.add("Final_Output")
+                downstream_map[source_name].add("Final_Output")
+                upstream_map["Final_Output"].add(source_name)
 
         # Save to session memory
         st.session_state.lineage_data = {
