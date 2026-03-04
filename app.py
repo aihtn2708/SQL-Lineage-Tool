@@ -40,60 +40,96 @@ SELECT * FROM regional_summary;"""
     analyze_btn = st.button("Draw Lineage Flow", type="primary")
 
 # --- Core Logic & Visualization ---
+from collections import defaultdict
+
+# --- Core Logic & Visualization ---
 with col_viz:
-    st.subheader("Data Lineage Map")
+    st.subheader("Data Lineage & Impact Analysis")
     
     if analyze_btn and sql_input:
         try:
-            # 1. Initialize Graphviz Directed Graph
-            graph = graphviz.Digraph(engine='dot')
-            graph.attr(rankdir='LR', size='8,8') # LR = Left to Right flow
-            graph.attr('node', shape='cylinder', style='filled', fillcolor='lightblue', fontname='Helvetica')
-
-            # 2. Parse the SQL
+            # 1. Parse the SQL
             parsed_query = sqlglot.parse_one(sql_input)
-            
-            # 3. Extract CTEs and map dependencies
             ctes = list(parsed_query.find_all(exp.CTE))
-            cte_names = [cte.alias for cte in ctes]
-
-            # Track what we've added to avoid duplicate nodes
-            added_nodes = set()
-
+            
+            # 2. Track Dependencies (Parent -> Children)
+            dependency_map = defaultdict(list)
+            all_known_nodes = set()
+            
             for cte in ctes:
                 cte_name = cte.alias
-                if cte_name not in added_nodes:
-                    graph.node(cte_name, cte_name)
-                    added_nodes.add(cte_name)
+                all_known_nodes.add(cte_name)
                 
-                # Find all tables referenced inside this specific CTE
                 for table in cte.find_all(exp.Table):
                     source_name = table.name
-                    if source_name not in added_nodes:
-                        # Color source tables differently
-                        graph.node(source_name, source_name, fillcolor='lightgrey')
-                        added_nodes.add(source_name)
-                    
-                    # Draw the line from the source table to the CTE
-                    graph.edge(source_name, cte_name)
+                    all_known_nodes.add(source_name)
+                    # Map the source table to the CTE that uses it
+                    dependency_map[source_name].append(cte_name)
 
-            # 4. Handle the Final SELECT statement
-            # Find the main SELECT scope (excluding the CTE definitions)
-            graph.node("Final_Output", "Final Output", fillcolor='lightgreen', shape='box')
-            
-            # We look at the base tables of the final query
+            # Map the Final Output
             if isinstance(parsed_query, exp.Select):
                 for table in parsed_query.find_all(exp.Table):
-                    # Only link to the final output if it's referenced in the main query, not inside a CTE
-                    # (This is a simplified check for V1)
                     if table.parent is parsed_query or table.parent.parent is parsed_query:
-                        graph.edge(table.name, "Final_Output")
+                        dependency_map[table.name].append("Final_Output")
+                        all_known_nodes.add("Final_Output")
 
-            # 5. Render in Streamlit
+            # 3. Interactive UI for Impact Analysis
+            st.markdown("---")
+            target_node = st.selectbox(
+                "🚨 Select a Table/CTE to simulate a change (Domino Effect):", 
+                options=["-- None --"] + sorted(list(all_known_nodes))
+            )
+
+            # 4. Calculate the Domino Effect (Recursive function)
+            def get_downstream_impact(node, dep_map, visited=None):
+                if visited is None:
+                    visited = set()
+                for child in dep_map.get(node, []):
+                    if child not in visited:
+                        visited.add(child)
+                        get_downstream_impact(child, dep_map, visited)
+                return visited
+            
+            impacted_nodes = set()
+            if target_node != "-- None --":
+                impacted_nodes = get_downstream_impact(target_node, dependency_map)
+                # Include the target node itself in the highlight
+                impacted_nodes.add(target_node) 
+
+            # 5. Initialize & Draw Graphviz
+            graph = graphviz.Digraph(engine='dot')
+            graph.attr(rankdir='LR', size='8,8')
+            graph.attr('node', shape='cylinder', style='filled', fontname='Helvetica')
+
+            # Draw nodes with conditional coloring
+            drawn_nodes = set()
+            for parent, children in dependency_map.items():
+                # Draw Parent
+                if parent not in drawn_nodes:
+                    color = '#ff6b6b' if parent in impacted_nodes else 'lightgrey' # Red if impacted
+                    graph.node(parent, parent, fillcolor=color)
+                    drawn_nodes.add(parent)
+                
+                # Draw Children & Edges
+                for child in children:
+                    if child not in drawn_nodes:
+                        color = '#ff6b6b' if child in impacted_nodes else 'lightblue'
+                        if child == "Final_Output":
+                            color = '#ff6b6b' if child in impacted_nodes else 'lightgreen'
+                            graph.node(child, "Final Output", fillcolor=color, shape='box')
+                        else:
+                            graph.node(child, child, fillcolor=color)
+                        drawn_nodes.add(child)
+                    
+                    # Connect them
+                    edge_color = 'red' if (parent in impacted_nodes and child in impacted_nodes) else 'black'
+                    graph.edge(parent, child, color=edge_color)
+
             st.graphviz_chart(graph, use_container_width=True)
-            st.success("Lineage mapped successfully!")
+            
+            # Print a summary warning if a target is selected
+            if target_node != "-- None --" and len(impacted_nodes) > 1:
+                st.warning(f"⚠️ **Warning:** Changing `{target_node}` will directly impact {len(impacted_nodes)-1} downstream components.")
 
         except sqlglot.errors.ParseError as e:
-            st.error(f"SQL Syntax Error. Please check your query.\n\nDetails: {e}")
-        except Exception as e:
-            st.error(f"An error occurred while mapping: {e}")
+            st.error("SQL Syntax Error. Please check your query.")
