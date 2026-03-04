@@ -125,10 +125,24 @@ SELECT * FROM q1_rev UNION ALL SELECT * FROM q2_rev;"""
 # PAGE 2: LINEAGE TOOL
 # ==========================================
 elif selected_page == "Lineage Tool":
-    st.info("💡 **Pro-tip:** Drag the bold vertical line between the editor and the graph to adjust their widths! Hover over the text editor or graph to click the `⤢` icon for Fullscreen mode.")
     
-    # 💥 THE UPGRADE: Drop-in replacement that adds a draggable divider
-    col_input, col_viz = adjustable_columns([1, 1.5], gap="large")
+    # --- PAGE-SPECIFIC CSS HACK ---
+    st.markdown("""
+    <style>
+        /* Nuke the ugly "Col 1 / Col 2" header bar from the plugin */
+        iframe[title*="adjustable_columns"] {
+            height: 0px !important;
+            min-height: 0px !important;
+            visibility: hidden !important;
+            margin-bottom: -1.5rem !important; /* Pull content up to remove the empty gap */
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.info("💡 **Pro-tip:** Hover your mouse in the gap between the editor and the graph to drag and adjust their widths! Hover over elements for Fullscreen mode.")
+    
+    # We pass empty labels to prevent the plugin from rendering text
+    col_input, col_viz = adjustable_columns([1, 1.5], gap="large", labels=["", ""]) 
     
     with col_input:
         st.subheader("📝 SQL Editor")
@@ -202,7 +216,6 @@ elif selected_page == "Lineage Tool":
             
             c_controls_1, c_controls_2 = st.columns([1, 1])
             with c_controls_1:
-                # Aligned to 1 column by removing horizontal=True
                 analysis_mode = st.radio(
                     "Analysis Mode:", 
                     ["Default View", "🔴 Downstream Impact", "🟠 Upstream Root Cause"]
@@ -227,7 +240,6 @@ elif selected_page == "Lineage Tool":
                 highlighted.add(target_node)
 
             # --- Graphviz Rendering ---
-            # Set format='png' so we can export it later
             graph = graphviz.Digraph(engine='dot', format='png')
             graph.attr(rankdir='LR', size='12,12', bgcolor='transparent')
             graph.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', margin='0.2')
@@ -249,12 +261,10 @@ elif selected_page == "Lineage Tool":
                     if "Upstream" in analysis_mode and parent in highlighted and child in highlighted: edge_color = '#f97316'
                     graph.edge(parent, child, color=edge_color, penwidth='2' if edge_color != '#9ca3af' else '1')
 
-            # Render Chart
             st.graphviz_chart(graph, use_container_width=True)
             
             # --- Image Download Button ---
             try:
-                # Pipe generates the raw bytes of the image
                 img_bytes = graph.pipe()
                 filename_suffix = target_node.replace(" ", "_") if target_node != "-- None --" else "full"
                 st.download_button(
@@ -272,7 +282,6 @@ elif selected_page == "Lineage Tool":
                 st.markdown("---")
                 st.subheader(f"📋 Extracted {analysis_mode.split(' ')[1]} Data")
                 
-                # Remove the target node itself from the list so we only show the impacts
                 impacted_items = list(highlighted - {target_node})
                 
                 if impacted_items:
