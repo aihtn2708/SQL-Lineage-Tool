@@ -126,8 +126,8 @@ SELECT * FROM q1_rev UNION ALL SELECT * FROM q2_rev;"""
 elif selected_page == "Lineage Tool":
     st.info("💡 **Pro-tip:** Hover over the text editor or graph to click the `⤢` icon for Fullscreen mode.")
     
-    # --- The Width Adjustment Hack ---
-    split_pct = st.slider("📐 Adjust Editor Width (%)", min_value=20, max_value=80, value=40, step=5)
+    # The Slider remains our best tool for dynamic width adjustment in Streamlit
+    split_pct = st.slider("📐 Adjust Editor vs. Graph Width (%)", min_value=20, max_value=80, value=35, step=5, label_visibility="collapsed")
     col_input, col_viz = st.columns([split_pct, 100 - split_pct], gap="large")
     
     with col_input:
@@ -196,12 +196,18 @@ elif selected_page == "Lineage Tool":
     with col_viz:
         if st.session_state.lineage_data:
             data = st.session_state.lineage_data
+            
+            # --- Graph Control Panel ---
             st.subheader("📊 Interactive Graph")
             
-            c1, c2 = st.columns(2)
-            with c1:
-                analysis_mode = st.radio("Mode:", ["Default View", "🔴 Downstream Impact", "🟠 Upstream Root Cause"], horizontal=True)
-            with c2:
+            c_controls_1, c_controls_2 = st.columns([1, 1])
+            with c_controls_1:
+                # Aligned to 1 column by removing horizontal=True
+                analysis_mode = st.radio(
+                    "Analysis Mode:", 
+                    ["Default View", "🔴 Downstream Impact", "🟠 Upstream Root Cause"]
+                )
+            with c_controls_2:
                 target_node = st.selectbox("Target Node:", ["-- None --"] + sorted(list(data["nodes"])))
 
             def trace_lineage(node, mapping, visited=None):
@@ -220,7 +226,9 @@ elif selected_page == "Lineage Tool":
                     highlighted = trace_lineage(target_node, data["upstream"])
                 highlighted.add(target_node)
 
-            graph = graphviz.Digraph(engine='dot')
+            # --- Graphviz Rendering ---
+            # Set format='png' so we can export it later
+            graph = graphviz.Digraph(engine='dot', format='png')
             graph.attr(rankdir='LR', size='12,12', bgcolor='transparent')
             graph.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', margin='0.2')
 
@@ -241,7 +249,40 @@ elif selected_page == "Lineage Tool":
                     if "Upstream" in analysis_mode and parent in highlighted and child in highlighted: edge_color = '#f97316'
                     graph.edge(parent, child, color=edge_color, penwidth='2' if edge_color != '#9ca3af' else '1')
 
+            # Render Chart
             st.graphviz_chart(graph, use_container_width=True)
+            
+            # --- Image Download Button ---
+            try:
+                # Pipe generates the raw bytes of the image
+                img_bytes = graph.pipe()
+                filename_suffix = target_node.replace(" ", "_") if target_node != "-- None --" else "full"
+                st.download_button(
+                    label="🖼️ Download Graph as PNG",
+                    data=img_bytes,
+                    file_name=f"lineage_map_{filename_suffix}.png",
+                    mime="image/png",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.caption("Image export unavailable right now.")
+
+            # --- Extracted Impact Table ---
+            if target_node != "-- None --" and analysis_mode != "Default View":
+                st.markdown("---")
+                st.subheader(f"📋 Extracted {analysis_mode.split(' ')[1]} Data")
+                
+                # Remove the target node itself from the list so we only show the impacts
+                impacted_items = list(highlighted - {target_node})
+                
+                if impacted_items:
+                    df_impact = pd.DataFrame({
+                        "Affected Node": impacted_items,
+                        "Type": ["Final Output" if n == "Final_Output" else "Table/CTE" for n in impacted_items]
+                    })
+                    st.dataframe(df_impact, hide_index=True, use_container_width=True)
+                else:
+                    st.info(f"No direct {analysis_mode.split(' ')[1].lower()} items found for `{target_node}`.")
 
 # ==========================================
 # PAGE 3: MY PROJECTS
