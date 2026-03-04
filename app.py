@@ -125,23 +125,9 @@ SELECT * FROM q1_rev UNION ALL SELECT * FROM q2_rev;"""
 # PAGE 2: LINEAGE TOOL
 # ==========================================
 elif selected_page == "Lineage Tool":
+    st.info("💡 **Pro-tip:** Drag the gap between the editor and the graph to adjust widths! Hover over the text editor or graph to click the `⤢` icon for Fullscreen mode.")
     
-    # --- PAGE-SPECIFIC CSS HACK ---
-    st.markdown("""
-    <style>
-        /* Nuke the ugly "Col 1 / Col 2" header bar from the plugin */
-        iframe[title*="adjustable_columns"] {
-            height: 0px !important;
-            min-height: 0px !important;
-            visibility: hidden !important;
-            margin-bottom: -1.5rem !important; /* Pull content up to remove the empty gap */
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.info("💡 **Pro-tip:** Hover your mouse in the gap between the editor and the graph to drag and adjust their widths! Hover over elements for Fullscreen mode.")
-    
-    # We pass empty labels to prevent the plugin from rendering text
+    # Removed the destructive CSS hack. Using empty labels keeps it clean but functional.
     col_input, col_viz = adjustable_columns([1, 1.5], gap="large", labels=["", ""]) 
     
     with col_input:
@@ -263,7 +249,7 @@ elif selected_page == "Lineage Tool":
 
             st.graphviz_chart(graph, use_container_width=True)
             
-            # --- Image Download Button ---
+            # --- Image Download Button (With Explicit Error Handling) ---
             try:
                 img_bytes = graph.pipe()
                 filename_suffix = target_node.replace(" ", "_") if target_node != "-- None --" else "full"
@@ -275,7 +261,9 @@ elif selected_page == "Lineage Tool":
                     use_container_width=True
                 )
             except Exception as e:
-                st.caption("Image export unavailable right now.")
+                # This will now explicitly tell you if the OS-level binary is missing
+                st.error(f"Image Export Error: {e}")
+                st.caption("You likely need to install the Graphviz OS software (e.g., via homebrew on Mac or graphviz.org on Windows) and add it to your PATH.")
 
             # --- Extracted Impact Table ---
             if target_node != "-- None --" and analysis_mode != "Default View":
@@ -292,7 +280,6 @@ elif selected_page == "Lineage Tool":
                     st.dataframe(df_impact, hide_index=True, use_container_width=True)
                 else:
                     st.info(f"No direct {analysis_mode.split(' ')[1].lower()} items found for `{target_node}`.")
-
 # ==========================================
 # PAGE 3: MY PROJECTS
 # ==========================================
