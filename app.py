@@ -5,6 +5,7 @@ from sqlglot import exp
 import graphviz
 from collections import defaultdict
 from streamlit_option_menu import option_menu
+from streamlit_adjustable_columns import adjustable_columns
 import pandas as pd
 import datetime
 
@@ -124,11 +125,10 @@ SELECT * FROM q1_rev UNION ALL SELECT * FROM q2_rev;"""
 # PAGE 2: LINEAGE TOOL
 # ==========================================
 elif selected_page == "Lineage Tool":
-    st.info("💡 **Pro-tip:** Hover over the text editor or graph to click the `⤢` icon for Fullscreen mode.")
+    st.info("💡 **Pro-tip:** Drag the bold vertical line between the editor and the graph to adjust their widths! Hover over the text editor or graph to click the `⤢` icon for Fullscreen mode.")
     
-    # The Slider remains our best tool for dynamic width adjustment in Streamlit
-    split_pct = st.slider("📐 Adjust Editor vs. Graph Width (%)", min_value=20, max_value=80, value=35, step=5, label_visibility="collapsed")
-    col_input, col_viz = st.columns([split_pct, 100 - split_pct], gap="large")
+    # 💥 THE UPGRADE: Drop-in replacement that adds a draggable divider
+    col_input, col_viz = adjustable_columns([1, 1.5], gap="large")
     
     with col_input:
         st.subheader("📝 SQL Editor")
