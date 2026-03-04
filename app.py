@@ -7,7 +7,37 @@ from collections import defaultdict
 import datetime
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="SQL-Flow SaaS", layout="wide")
+st.set_page_config(page_title="SQL-Flow SaaS", layout="wide", initial_sidebar_state="expanded")
+
+# --- CUSTOM UI / CSS ---
+st.markdown("""
+<style>
+    /* Center the main title */
+    .centered-title {
+        text-align: center;
+        font-weight: 800;
+        font-size: 3rem;
+        margin-bottom: 0.5rem;
+        background: -webkit-linear-gradient(45deg, #FF4B4B, #FF8F8F);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    /* Subtitle centering */
+    .centered-subtitle {
+        text-align: center;
+        color: #666;
+        margin-bottom: 2rem;
+    }
+    /* Sharpen the sidebar UI */
+    [data-testid="stSidebar"] {
+        border-right: 1px solid #e0e0e0;
+    }
+    .stRadio p {
+        font-size: 1.1rem;
+        font-weight: 500;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # --- SUPABASE INIT ---
 @st.cache_resource
@@ -26,78 +56,91 @@ if "editor_sql" not in st.session_state:
 if "lineage_data" not in st.session_state:
     st.session_state.lineage_data = None
 
-# --- HELPER FUNCTIONS ---
 def log_activity(action, details=""):
-    """Tracks user activity for the admin dashboard."""
     user_id = st.session_state.user.id if st.session_state.user else None
     try:
         supabase.table("activity_logs").insert({"user_id": user_id, "action": action, "details": details}).execute()
-    except Exception as e:
-        print(f"Tracking error: {e}")
+    except Exception:
+        pass
 
-# --- MAIN APP UI ---
-st.title("🔗 SQL-Flow: Lineage & Analytics")
+# --- HEADER ---
+st.markdown("<h1 class='centered-title'>🔗 SQL-Flow</h1>", unsafe_allow_html=True)
+st.markdown("<p class='centered-subtitle'>Data Lineage & Impact Analytics</p>", unsafe_allow_html=True)
 
-tab_intro, tab_tool, tab_projects, tab_account, tab_admin = st.tabs([
+# --- VERTICAL NAVIGATION (SIDEBAR) ---
+# Base menu options for everyone
+menu_options = [
     "📖 Intro & Examples", 
     "🛠️ Lineage Tool", 
     "📁 My Projects", 
-    "👤 Account", 
-    "👑 Admin Board"
-])
+    "👤 Account"
+]
+
+# Hidden Admin Feature Check
+is_admin = False
+if st.session_state.user and st.session_state.user.email == st.secrets.get("ADMIN_EMAIL", ""):
+    is_admin = True
+    menu_options.append("👑 Admin Board") # Only appends if admin email matches
+
+with st.sidebar:
+    st.markdown("### Navigation")
+    # Using radio buttons as a vertical menu
+    selected_page = st.radio("Go to", menu_options, label_visibility="collapsed")
+    
+    st.markdown("---")
+    if st.session_state.user:
+        st.success(f"Logged in:\n**{st.session_state.user.email}**")
+    else:
+        st.info("Status: **Guest Mode**")
 
 # ==========================================
-# TAB 1: INTRODUCTION & EXAMPLES
+# PAGE 1: INTRODUCTION & EXAMPLES
 # ==========================================
-with tab_intro:
+if selected_page == "📖 Intro & Examples":
     st.header("Welcome to SQL-Flow")
     st.markdown("""
     Instantly visualize complex SQL dependencies, track downstream impacts, and save your work. 
-    **Use it anonymously, or create an account to save projects.**
-    
-    *Need help? Contact us at support@sqlflow.com*
+    **Use it autonomously via the side menu, or create an account to save projects.**
     """)
     
     st.subheader("Load an Example")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Load Basic E-commerce SQL"):
+        if st.button("🛒 Load Basic E-commerce SQL", use_container_width=True):
             st.session_state.editor_sql = """WITH raw_users AS (SELECT id, name FROM db.users),
 active_users AS (SELECT * FROM raw_users WHERE status = 'active')
 SELECT * FROM active_users;"""
-            st.success("Loaded! Go to the '🛠️ Lineage Tool' tab.")
             log_activity("Loaded Example", "E-commerce")
+            st.success("Loaded! Click '🛠️ Lineage Tool' in the sidebar.")
             
     with col2:
-        if st.button("Load Complex Finance SQL"):
+        if st.button("📈 Load Complex Finance SQL", use_container_width=True):
             st.session_state.editor_sql = """WITH q1_rev AS (SELECT * FROM (SELECT id, amount FROM db.finance) AS sub1),
 q2_rev AS (SELECT id, amount FROM db.finance_q2)
 SELECT * FROM q1_rev UNION ALL SELECT * FROM q2_rev;"""
-            st.success("Loaded! Go to the '🛠️ Lineage Tool' tab.")
             log_activity("Loaded Example", "Finance")
+            st.success("Loaded! Click '🛠️ Lineage Tool' in the sidebar.")
 
 # ==========================================
-# TAB 2: LINEAGE TOOL (GUEST & LOGGED IN)
+# PAGE 2: LINEAGE TOOL
 # ==========================================
-with tab_tool:
-    col_input, col_viz = st.columns([1, 1.5])
+elif selected_page == "🛠️ Lineage Tool":
+    col_input, col_viz = st.columns([1, 1.5], gap="large")
     
     with col_input:
-        st.subheader("SQL Editor")
+        st.subheader("📝 SQL Editor")
         uploaded_file = st.file_uploader("Upload .sql file", type=["sql", "txt"])
         
         if uploaded_file:
             st.session_state.editor_sql = uploaded_file.getvalue().decode("utf-8")
             
-        sql_input = st.text_area("Your Query:", value=st.session_state.editor_sql, height=300)
-        analyze_btn = st.button("Parse SQL & Generate Map", type="primary")
+        sql_input = st.text_area("Your Query:", value=st.session_state.editor_sql, height=350)
+        analyze_btn = st.button("🚀 Parse SQL & Generate Map", type="primary", use_container_width=True)
         
-        # Save Work Logic (Only if logged in)
         if st.session_state.user:
             st.markdown("---")
             st.subheader("💾 Save to Project")
             
-            # Fetch user's projects
             projects_res = supabase.table("projects").select("*").eq("user_id", st.session_state.user.id).execute()
             projects = {p['name']: p['id'] for p in projects_res.data}
             
@@ -115,9 +158,8 @@ with tab_tool:
                     log_activity("Saved Query", query_name)
                     st.success("Query saved successfully!")
         else:
-            st.info("💡 Log in via the Account tab to save your work.")
+            st.info("💡 Log in to save your work.")
 
-    # Parsing & Visualization Logic
     if analyze_btn and sql_input:
         log_activity("Parsed SQL")
         try:
@@ -126,7 +168,6 @@ with tab_tool:
             upstream_map = defaultdict(set)
             all_nodes = set()
             
-            # AST Subquery climbing logic
             for table in parsed_query.find_all(exp.Table):
                 source_name = table.name
                 all_nodes.add(source_name)
@@ -157,7 +198,7 @@ with tab_tool:
     with col_viz:
         if st.session_state.lineage_data:
             data = st.session_state.lineage_data
-            st.subheader("Interactive Graph")
+            st.subheader("📊 Interactive Graph")
             
             c1, c2 = st.columns(2)
             with c1:
@@ -182,139 +223,143 @@ with tab_tool:
                 highlighted.add(target_node)
 
             graph = graphviz.Digraph(engine='dot')
-            graph.attr(rankdir='LR', size='10,10')
-            graph.attr('node', shape='cylinder', style='filled', fontname='Helvetica')
+            graph.attr(rankdir='LR', size='10,10', bgcolor='transparent')
+            graph.attr('node', shape='box', style='rounded,filled', fontname='Helvetica', margin='0.2')
 
             for node in data["nodes"]:
-                fill_color = 'lightblue'
+                fill_color = '#e0f2fe' # Light clean blue
                 if node in highlighted:
-                    fill_color = '#ff6b6b' if "Downstream" in analysis_mode else '#ffb067'
+                    fill_color = '#fee2e2' if "Downstream" in analysis_mode else '#ffedd5'
                 elif node == "Final_Output":
-                    fill_color = 'lightgreen'
+                    fill_color = '#dcfce7' # Light green
                 elif node not in data["upstream"] and node != "Final_Output":
-                    fill_color = 'lightgrey'
+                    fill_color = '#f3f4f6' # Grey for raw sources
                 
-                shape = 'box' if node == "Final_Output" else 'cylinder'
-                graph.node(node, "Final Output" if node == "Final_Output" else node, fillcolor=fill_color, shape=shape)
+                graph.node(node, "Final Output" if node == "Final_Output" else node, fillcolor=fill_color)
 
             for parent, children in data["downstream"].items():
                 for child in children:
-                    edge_color = 'red' if ("Downstream" in analysis_mode and parent in highlighted and child in highlighted) else 'black'
-                    if "Upstream" in analysis_mode and parent in highlighted and child in highlighted: edge_color = 'orange'
-                    graph.edge(parent, child, color=edge_color, penwidth='2' if edge_color != 'black' else '1')
+                    edge_color = '#ef4444' if ("Downstream" in analysis_mode and parent in highlighted and child in highlighted) else '#9ca3af'
+                    if "Upstream" in analysis_mode and parent in highlighted and child in highlighted: edge_color = '#f97316'
+                    graph.edge(parent, child, color=edge_color, penwidth='2' if edge_color != '#9ca3af' else '1')
 
             st.graphviz_chart(graph, use_container_width=True)
 
 # ==========================================
-# TAB 3: MY PROJECTS
+# PAGE 3: MY PROJECTS
 # ==========================================
-with tab_projects:
+elif selected_page == "📁 My Projects":
     if st.session_state.user:
         st.header("Your Workspace")
         
-        new_proj = st.text_input("Create New Project")
-        if st.button("Create Project") and new_proj:
-            supabase.table("projects").insert({"user_id": st.session_state.user.id, "name": new_proj}).execute()
-            st.success("Project created!")
-            st.rerun()
+        with st.container(border=True):
+            st.subheader("➕ Create New Project")
+            col_p1, col_p2 = st.columns([3, 1])
+            with col_p1:
+                new_proj = st.text_input("Project Name", label_visibility="collapsed", placeholder="e.g., Q3 Marketing Migration")
+            with col_p2:
+                if st.button("Create", use_container_width=True) and new_proj:
+                    supabase.table("projects").insert({"user_id": st.session_state.user.id, "name": new_proj}).execute()
+                    st.success("Project created!")
+                    st.rerun()
 
         st.markdown("### Saved Queries")
         projects_res = supabase.table("projects").select("id, name").eq("user_id", st.session_state.user.id).execute()
         
-        for p in projects_res.data:
-            with st.expander(f"📁 {p['name']}"):
-                queries_res = supabase.table("queries").select("*").eq("project_id", p['id']).execute()
-                for q in queries_res.data:
-                    st.markdown(f"**{q['name']}**")
-                    st.code(q['sql_text'], language="sql")
+        if not projects_res.data:
+            st.info("You don't have any projects yet.")
+        else:
+            for p in projects_res.data:
+                with st.expander(f"📁 **{p['name']}**"):
+                    queries_res = supabase.table("queries").select("*").eq("project_id", p['id']).execute()
+                    if not queries_res.data:
+                        st.caption("No queries saved here yet.")
+                    for q in queries_res.data:
+                        st.markdown(f"**{q['name']}**")
+                        st.code(q['sql_text'], language="sql")
     else:
-        st.warning("Please log in to manage projects.")
+        st.warning("Please log in to manage your workspace.")
 
 # ==========================================
-# TAB 4: ACCOUNT (AUTH)
+# PAGE 4: ACCOUNT
 # ==========================================
-with tab_account:
+elif selected_page == "👤 Account":
     if not st.session_state.user:
         st.header("Authentication")
-        auth_mode = st.radio("Select Action", ["Login", "Sign Up", "Forgot Password", "Enter Reset Code"])
-        
-        email = st.text_input("Email")
-        
-        if auth_mode in ["Login", "Sign Up"]:
-            password = st.text_input("Password", type="password")
+        with st.container(border=True):
+            auth_mode = st.radio("Action:", ["Login", "Sign Up", "Forgot Password", "Enter Reset Code"], horizontal=True)
+            st.markdown("<br>", unsafe_allow_html=True)
             
-        elif auth_mode == "Enter Reset Code":
-            reset_code = st.text_input("6-Digit Reset Code (from email)")
-            new_password = st.text_input("New Password", type="password")
+            email = st.text_input("Email")
             
-        if st.button(auth_mode):
-            try:
-                if auth_mode == "Login":
-                    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    st.session_state.user = res.user
-                    log_activity("User Logged In")
-                    st.success("Logged in successfully!")
-                    st.rerun()
-                    
-                elif auth_mode == "Sign Up":
-                    supabase.auth.sign_up({"email": email, "password": password})
-                    st.success("Check your email to confirm registration!")
-                    
-                elif auth_mode == "Forgot Password":
-                    supabase.auth.reset_password_email(email)
-                    st.success("Reset code sent! Please check your email and select 'Enter Reset Code' above.")
-                    
-                elif auth_mode == "Enter Reset Code":
-                    # 1. Verify the 6-digit code
-                    supabase.auth.verify_otp({"email": email, "token": reset_code, "type": "recovery"})
-                    # 2. Update the password
-                    supabase.auth.update_user({"password": new_password})
-                    st.success("Password updated successfully! You can now select 'Login' to access your account.")
-                    
-            except Exception as e:
-                st.error(f"Authentication Error: {e}")
+            if auth_mode in ["Login", "Sign Up"]:
+                password = st.text_input("Password", type="password")
+                
+            elif auth_mode == "Enter Reset Code":
+                reset_code = st.text_input("6-Digit Reset Code (from email)")
+                new_password = st.text_input("New Password", type="password")
+                
+            if st.button(auth_mode, type="primary"):
+                try:
+                    if auth_mode == "Login":
+                        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state.user = res.user
+                        log_activity("User Logged In")
+                        st.success("Logged in successfully!")
+                        st.rerun()
+                    elif auth_mode == "Sign Up":
+                        supabase.auth.sign_up({"email": email, "password": password})
+                        st.success("Check your email to confirm registration!")
+                    elif auth_mode == "Forgot Password":
+                        supabase.auth.reset_password_email(email)
+                        st.success("Reset code sent! Please select 'Enter Reset Code' above.")
+                    elif auth_mode == "Enter Reset Code":
+                        supabase.auth.verify_otp({"email": email, "token": reset_code, "type": "recovery"})
+                        supabase.auth.update_user({"password": new_password})
+                        st.success("Password updated! You can now log in.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
     else:
-        st.success(f"Welcome, {st.session_state.user.email}")
+        st.header("Account Settings")
+        st.success(f"Verified Email: **{st.session_state.user.email}**")
         
-        # Logged-in users can also change their password here if they want
-        with st.expander("Change Password"):
-            update_password = st.text_input("Enter New Password", type="password", key="update_pw")
-            if st.button("Update Password"):
+        with st.expander("Update Password"):
+            update_password = st.text_input("Enter New Password", type="password")
+            if st.button("Save New Password"):
                 try:
                     supabase.auth.update_user({"password": update_password})
-                    st.success("Password updated!")
+                    st.success("Password securely updated.")
                 except Exception as e:
-                    st.error(f"Failed to update password: {e}")
+                    st.error(f"Failed to update: {e}")
                     
-        if st.button("Log Out"):
+        if st.button("🚪 Log Out", type="secondary"):
             log_activity("User Logged Out")
             supabase.auth.sign_out()
             st.session_state.user = None
             st.rerun()
-            
+
 # ==========================================
-# TAB 5: ADMIN BOARD
+# PAGE 5: ADMIN BOARD (HIDDEN)
 # ==========================================
-with tab_admin:
-    if st.session_state.user and st.session_state.user.email == st.secrets["ADMIN_EMAIL"]:
-        st.header("Admin Dashboard: App Usage")
+elif selected_page == "👑 Admin Board":
+    st.header("Admin Dashboard")
+    st.markdown("System metrics and user activity streams.")
+    
+    try:
+        queries = supabase.table("queries").select("id", count="exact").execute()
+        activity = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(20).execute()
         
-        try:
-            # Fetch aggregate stats
-            users = supabase.auth.admin.list_users() # Note: requires service_role key for actual admin rights in production
-            queries = supabase.table("queries").select("id", count="exact").execute()
-            activity = supabase.table("activity_logs").select("*").order("created_at", desc=True).limit(20).execute()
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Saved Queries", queries.count)
-            col2.metric("Recent Activity Events", len(activity.data))
-            
-            st.subheader("Recent Activity Stream")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Queries Processed", queries.count)
+        with col2:
+            st.metric("Recent Activity Events", len(activity.data))
+        
+        st.subheader("Activity Stream")
+        with st.container(border=True, height=400):
             for act in activity.data:
                 user_label = "Guest" if not act['user_id'] else "Registered User"
-                st.markdown(f"- **{act['action']}** by *{user_label}* ({act['created_at'][:10]}) - {act['details']}")
+                st.markdown(f"`{act['created_at'][:16]}` | **{act['action']}** by *{user_label}* ({act['details']})")
                 
-        except Exception as e:
-            st.warning("Ensure your Supabase policies allow Admin reads, or use a Service Role Key for Admin stats.")
-    else:
-        st.error("🔒 You do not have permission to view the Admin Board.")
+    except Exception:
+        st.warning("Ensure policies allow Admin reads.")
