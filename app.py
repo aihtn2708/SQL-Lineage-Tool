@@ -9,9 +9,15 @@ st.set_page_config(page_title="SQL-Flow V2", layout="wide")
 st.title("🔗 SQL-Flow: Lineage & Impact Analysis")
 
 # --- Initialize Session State Memory ---
-# This is the secret to keeping the graph on screen when interacting with dropdowns!
 if "lineage_data" not in st.session_state:
     st.session_state.lineage_data = None
+
+# --- Sidebar / Inputs ---
+with st.sidebar:
+    st.header("Input Method")
+    uploaded_file = st.file_uploader("Upload SQL File", type=["sql", "txt"])
+    st.markdown("---")
+    st.markdown("💡 **Tip:** Uploading a file will automatically populate the editor. You can then edit the SQL live before generating the map.")
 
 # --- UI Layout ---
 col_input, col_viz = st.columns([1, 1.5])
@@ -29,7 +35,14 @@ regional_summary AS (
 )
 SELECT * FROM regional_summary;"""
 
-    sql_input = st.text_area("Paste your query:", value=default_sql, height=400)
+    # Determine what text to show in the editor
+    if uploaded_file is not None:
+        file_text = uploaded_file.getvalue().decode("utf-8")
+    else:
+        file_text = default_sql
+
+    # The text area uses the file text (if uploaded) or the default text
+    sql_input = st.text_area("Your Query:", value=file_text, height=400)
     analyze_btn = st.button("Parse SQL & Generate Map", type="primary")
 
 # --- Parsing Logic (Runs only when button is clicked) ---
@@ -38,7 +51,6 @@ if analyze_btn and sql_input:
         parsed_query = sqlglot.parse_one(sql_input)
         ctes = list(parsed_query.find_all(exp.CTE))
         
-        # We need two maps: one for Downstream (Parent->Child) and one for Upstream (Child->Parent)
         downstream_map = defaultdict(set)
         upstream_map = defaultdict(set)
         all_nodes = set()
@@ -51,7 +63,6 @@ if analyze_btn and sql_input:
             for table in cte.find_all(exp.Table):
                 source_name = table.name
                 all_nodes.add(source_name)
-                # Build the bidirectional relationships
                 downstream_map[source_name].add(cte_name)
                 upstream_map[cte_name].add(source_name)
 
@@ -104,7 +115,7 @@ with col_viz:
                     trace_lineage(related_node, mapping, visited)
             return visited
 
-        # Determine which nodes to highlight based on selected mode
+        # Determine which nodes to highlight
         highlighted_nodes = set()
         if target_node != "-- None --":
             if "Downstream" in analysis_mode:
@@ -121,12 +132,11 @@ with col_viz:
 
         # Add all nodes
         for node in data["nodes"]:
-            # Determine color
             if node in highlighted_nodes:
-                fill_color = '#ff6b6b' if "Downstream" in analysis_mode else '#ffb067' # Red for Down, Orange for Up
+                fill_color = '#ff6b6b' if "Downstream" in analysis_mode else '#ffb067'
             else:
                 fill_color = 'lightgreen' if node == "Final_Output" else 'lightblue'
-                if node not in data["upstream"] and node != "Final_Output": # It's a raw source table
+                if node not in data["upstream"] and node != "Final_Output": 
                     fill_color = 'lightgrey'
             
             shape = 'box' if node == "Final_Output" else 'cylinder'
@@ -137,7 +147,6 @@ with col_viz:
         # Add all edges
         for parent, children in data["downstream"].items():
             for child in children:
-                # If both parent and child are highlighted, highlight the line connecting them
                 if parent in highlighted_nodes and child in highlighted_nodes:
                     edge_color = 'red' if "Downstream" in analysis_mode else 'orange'
                     graph.edge(parent, child, color=edge_color, penwidth='2')
