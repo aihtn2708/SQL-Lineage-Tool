@@ -2,3 +2,5 @@ streamlit
 sqlglot
 graphviz
 supabase
+streamlit-option-menu
+pandas
