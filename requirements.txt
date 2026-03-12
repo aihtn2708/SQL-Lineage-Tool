@@ -4,3 +4,4 @@ supabase
 streamlit-option-menu
 streamlit-adjustable-columns
 pandas
+graphviz
